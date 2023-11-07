@@ -1,9 +1,10 @@
 name: ci
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main" ]
+    branches: ["main"]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -21,11 +22,10 @@ jobs:
 
       - name: Cache Dependencies
         uses: Swatinem/rust-cache@v1.3.0
-        
+
       - name: Build
         run: |
           cargo build --manifest-path teleprobe/Cargo.toml
           cargo build --manifest-path teleprobe/Cargo.toml --release
           cargo test --manifest-path teleprobe/Cargo.toml
           cargo test --manifest-path teleprobe/Cargo.toml --release
-    
