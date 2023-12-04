@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use log::{error, info};
 use parking_lot::Mutex;
-use probe_rs::Probe;
+use probe_rs::{Probe, Lister};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::spawn_blocking;
@@ -210,7 +210,9 @@ async fn handle_run(name: String, args: RunArgs, elf: Bytes, cx: Arc<Mutex<Conte
 fn targets(cx: Arc<Mutex<Context>>) -> api::TargetList {
     let targets = cx.lock().config.targets.clone();
     let mut res = Vec::new();
-    let up_probes = Probe::list_all();
+    
+    let probe_lister = Lister::new();
+    let up_probes = probe_lister.list_all();
 
     for target in targets {
         let is_up = !probes_filter(&up_probes, &target.probe).is_empty();

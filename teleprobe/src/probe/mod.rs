@@ -6,7 +6,7 @@ use std::time::Instant;
 
 use anyhow::{bail, Result};
 use clap::Parser;
-use probe_rs::{DebugProbeInfo, MemoryInterface, Permissions, Probe, Session};
+use probe_rs::{DebugProbeInfo, DebugProbeSelector, Lister, MemoryInterface, Permissions, Session};
 pub use specifier::ProbeSpecifier;
 
 static UHUBCTL_MUTEX: Mutex<()> = Mutex::new(());
@@ -43,7 +43,8 @@ pub struct Opts {
 }
 
 pub fn list() -> Result<()> {
-    let probes = Probe::list_all();
+    let probe_lister = Lister::new();
+    let probes = probe_lister.list_all();
     if probes.is_empty() {
         println!("No probe found!");
         return Ok(());
@@ -90,11 +91,19 @@ pub fn connect(opts: &Opts) -> Result<Session> {
         }
     }
 
+    let selector = DebugProbeSelector {
+        vendor_id: probes[0].vendor_id,
+        product_id: probes[0].product_id,
+        serial_number: probes[0].serial_number.clone(),
+    };
+    let lister = Lister::new();
+
     // GIANT HACK to reset both cores in rp2040.
     // Ideally this would be a custom sequence in probe-rs:
     // https://github.com/probe-rs/probe-rs/pull/1603
     if opts.chip.to_ascii_uppercase().starts_with("RP2040") {
-        let mut probe = probes[0].open()?;
+        let mut probe = lister.open(selector)?;
+
         log::debug!("opened probe for rp2040 reset");
 
         if let Some(speed) = opts.speed {
@@ -125,8 +134,15 @@ pub fn connect(opts: &Opts) -> Result<Session> {
         log::debug!("rp2040: reset done, reattaching");
     }
 
-    let mut probe = probes[0].open()?;
     log::debug!("opened probe");
+
+    let selector = DebugProbeSelector {
+        vendor_id: probes[0].vendor_id,
+        product_id: probes[0].product_id,
+        serial_number: probes[0].serial_number.clone(),
+    };
+
+    let mut probe = lister.open(selector)?;
 
     if let Some(speed) = opts.speed {
         probe.set_speed(speed)?;
@@ -147,7 +163,8 @@ pub fn connect(opts: &Opts) -> Result<Session> {
 }
 
 fn get_probe(opts: &&Opts) -> Result<Vec<DebugProbeInfo>> {
-    let probes = Probe::list_all();
+    let lister = Lister::new();
+    let probes = lister.list_all();
     let probes = if let Some(selected_probe) = &opts.probe {
         probes_filter(&probes, selected_probe)
     } else {

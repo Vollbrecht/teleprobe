@@ -10,10 +10,10 @@ use log::{info, warn};
 use object::read::{File as ElfFile, Object as _, ObjectSection as _};
 use object::{Architecture, ObjectSymbol};
 use probe_rs::config::MemoryRegion;
-use probe_rs::debug::DebugInfo;
+use probe_rs::debug::{DebugInfo, DebugRegisters};
 use probe_rs::flashing::{DownloadOptions, IdfOptions};
 use probe_rs::rtt::{Rtt, ScanRegion, UpChannel};
-use probe_rs::{Core, MemoryInterface, RegisterId, Session};
+use probe_rs::{exception_handler_for_core, Core, MemoryInterface, RegisterId, RegisterValue, Session};
 
 pub const LR: RegisterId = RegisterId(14);
 pub const PC: RegisterId = RegisterId(15);
@@ -167,10 +167,12 @@ impl Runner {
             dopts.keep_unwritten_bytes = true;
             dopts.verify = true;
 
+            log::info!("..flashing ..");
             let target = sess.target();
             let mut loader = target.flash_loader();
             let mut file = Cursor::new(&elf_bytes);
 
+            log::info!("..flashing2 ..");
             // TODO: Include Xtensa when supported by `probe-rs`
             if arch == Architecture::Riscv32 && target.name.starts_with("esp") {
                 // FIXME: Flash verification currently fails for ESP devices; at reset,
@@ -372,7 +374,19 @@ impl Runner {
     }
 
     fn traceback(&mut self, core: &mut Core) -> anyhow::Result<()> {
-        let mut r = [0; 17];
+        let core_registers = core.registers().core_registers();
+
+        let sc = RegisterId::from(13);
+        let sc_value: RegisterValue = core.read_core_reg(sc)?;
+        let pc = RegisterId::from(15);
+        let pc_value: RegisterValue = core.read_core_reg(pc)?;
+
+        for reg in core_registers {
+            let value: RegisterValue = core.read_core_reg(reg.id())?;
+            info!("{}: {:#?}", reg.name(), value);
+        }
+
+        /*         let mut r = [0; 17];
         for (i, val) in r.iter_mut().enumerate() {
             *val = core.read_core_reg::<u32>(i as u16)?;
         }
@@ -394,14 +408,16 @@ impl Runner {
         );
         info!("XPSR: {:08x}", r[16]);
 
-        info!("");
+        info!(""); */
         info!("Stack:");
         let mut stack = [0u32; 32];
-        core.read_32(r[13] as _, &mut stack)?;
+
+        let sc_64: u64 = sc_value.try_into()?;
+        core.read_32(sc_64, &mut stack)?;
         for i in 0..(stack.len() / 4) {
             info!(
                 "{:08x}: {:08x} {:08x} {:08x} {:08x}",
-                r[13] + i as u32 * 16,
+                sc_64 as u32 + i as u32 * 16,
                 stack[i * 4 + 0],
                 stack[i * 4 + 1],
                 stack[i * 4 + 2],
@@ -412,7 +428,19 @@ impl Runner {
         info!("");
         info!("Backtrace:");
         let di = &self.di;
-        let stack_frames = di.unwind(core, r[15] as _).unwrap();
+
+        let pc_value: u32 = pc_value.try_into()?;
+        let registers = DebugRegisters::from_core(core);
+
+        let core_type = core.core_type();
+
+        let mut ex = exception_handler_for_core(core_type);
+
+        let ex_m = ex.as_mut();
+
+        let is = core.instruction_set().ok();
+
+        let stack_frames = di.unwind(core, registers, ex_m, is).unwrap();
 
         for (i, frame) in stack_frames.iter().enumerate() {
             let mut s = String::new();
@@ -427,7 +455,7 @@ impl Runner {
                     write!(&mut s, "\n       ").unwrap();
 
                     if let Some(dir) = &location.directory {
-                        write!(&mut s, "{}", dir.display()).unwrap();
+                        write!(&mut s, "{:#?}", dir).unwrap();
                     }
 
                     if let Some(file) = &location.file {
