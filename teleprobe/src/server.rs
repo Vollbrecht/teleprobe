@@ -8,7 +8,7 @@ use anyhow::{anyhow, bail};
 use bytes::Bytes;
 use log::{error, info};
 use parking_lot::Mutex;
-use probe_rs::{Probe, Lister};
+use probe_rs::{Lister, Probe};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::task::spawn_blocking;
@@ -35,7 +35,8 @@ fn run_firmware_on_device(elf: Bytes, probe: probe::Opts, timeout: Duration) -> 
     let mut sess = res?;
 
     let opts = run::Options {
-        deadline: Some(Instant::now() + timeout),
+        //deadline: Some(Instant::now() + timeout),
+        deadline: None,
         ..Default::default()
     };
     run::run(&mut sess, &elf, opts)?;
@@ -210,7 +211,7 @@ async fn handle_run(name: String, args: RunArgs, elf: Bytes, cx: Arc<Mutex<Conte
 fn targets(cx: Arc<Mutex<Context>>) -> api::TargetList {
     let targets = cx.lock().config.targets.clone();
     let mut res = Vec::new();
-    
+
     let probe_lister = Lister::new();
     let up_probes = probe_lister.list_all();
 
